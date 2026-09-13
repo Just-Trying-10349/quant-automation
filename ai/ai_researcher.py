@@ -196,31 +196,31 @@ Your job is only to produce ONE testable research proposal.
 COMPLETE_STRATEGY_CODE
 '''
 
-return prompt
+    return prompt
+
 
 def request_improvement(
-instructions,
-strategy_code,
-previous_result,
-previous_error
-):
-"""
-Request one strategy improvement from the configured AI provider.
-"""
-
- 
-prompt = build_prompt(
     instructions,
     strategy_code,
     previous_result,
     previous_error
-)
+):
+    """
+    Request one strategy improvement from the configured AI provider.
+    """
 
-response = ask_ai(prompt)
-
-if not response:
-    raise RuntimeError(
-        "AI researcher returned an empty response."
+    prompt = build_prompt(
+        instructions,
+        strategy_code,
+        previous_result,
+        previous_error
     )
 
-return response
+    response = ask_ai(prompt)
+
+    if not response:
+        raise RuntimeError(
+            "AI researcher returned an empty response."
+        )
+
+    return response
