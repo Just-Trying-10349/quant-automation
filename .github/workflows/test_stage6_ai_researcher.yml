@@ -1,4 +1,3 @@
-```yaml
 name: STEP 6 - Test Actual AI Researcher
 
 on:
@@ -197,4 +196,3 @@ jobs:
           print("No Git commit was created.")
           print("No 5-loop system was started.")
           PY
-```
