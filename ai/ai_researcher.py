@@ -125,9 +125,9 @@ CURRENT STRATEGY CODE
 
 The following is the strategy currently being tested:
 
-```python
+
 {strategy_code}
-````
+
 
 # PREVIOUS RESULT
 
@@ -196,9 +196,7 @@ Your job is only to produce ONE testable research proposal.
 COMPLETE_STRATEGY_CODE
 '''
 
-```
 return prompt
-```
 
 def request_improvement(
 instructions,
@@ -210,7 +208,7 @@ previous_error
 Request one strategy improvement from the configured AI provider.
 """
 
-```
+ 
 prompt = build_prompt(
     instructions,
     strategy_code,
