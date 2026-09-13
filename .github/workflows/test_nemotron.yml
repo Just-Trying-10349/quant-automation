@@ -1,0 +1,148 @@
+name: Test Nemotron Connection
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-nemotron:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------------------------------
+      # STEP 1 — Check out the repository
+      # ---------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # STEP 2 — Install Python
+      # ---------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ---------------------------------------------------------
+      # STEP 3 — Install the OpenAI-compatible Python client
+      #
+      # NVIDIA provides an OpenAI-compatible API, so we can use
+      # the standard OpenAI Python package to communicate with it.
+      # ---------------------------------------------------------
+      - name: Install OpenAI client
+        run: |
+          python -m pip install --upgrade pip
+          pip install openai
+
+      # ---------------------------------------------------------
+      # STEP 4 — Verify that GitHub actually received the secret
+      #
+      # IMPORTANT:
+      # We NEVER print the API key itself.
+      # We only check whether GitHub supplied something.
+      # ---------------------------------------------------------
+      - name: Check NVIDIA API key
+        env:
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+        run: |
+          if [ -z "$NEMOTRON_API_KEY" ]; then
+            echo "❌ NEMOTRON_API_KEY was NOT found."
+            echo "Check GitHub:"
+            echo "Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+
+          echo "✅ NEMOTRON_API_KEY was found."
+          echo "The key itself will NOT be displayed."
+
+      # ---------------------------------------------------------
+      # STEP 5 — Actually contact NVIDIA Nemotron
+      # ---------------------------------------------------------
+      - name: Test Nemotron API
+        env:
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          from openai import OpenAI
+
+          print()
+          print("=" * 60)
+          print("NEMOTRON CONNECTION TEST")
+          print("=" * 60)
+
+          # -----------------------------------------------------
+          # NVIDIA's OpenAI-compatible API endpoint
+          # -----------------------------------------------------
+          client = OpenAI(
+              base_url="https://integrate.api.nvidia.com/v1",
+              api_key=os.environ["NEMOTRON_API_KEY"],
+          )
+
+          # -----------------------------------------------------
+          # Current NVIDIA Nemotron 3 Ultra model
+          # -----------------------------------------------------
+          model = "nvidia/nemotron-3-ultra-550b-a55b"
+
+          print(f"Provider : NVIDIA")
+          print(f"Model    : {model}")
+          print(f"Endpoint : https://integrate.api.nvidia.com/v1")
+          print()
+          print("Sending test request...")
+          print()
+
+          try:
+              response = client.chat.completions.create(
+                  model=model,
+                  messages=[
+                      {
+                          "role": "user",
+                          "content": (
+                              "This is a connection test. "
+                              "Reply with exactly: "
+                              "NEMOTRON CONNECTION SUCCESS"
+                          ),
+                      }
+                  ],
+                  temperature=0,
+                  max_tokens=50,
+              )
+
+              # -------------------------------------------------
+              # Extract Nemotron's response
+              # -------------------------------------------------
+              answer = response.choices[0].message.content
+
+              print("=" * 60)
+              print("NVIDIA API REQUEST SUCCEEDED")
+              print("=" * 60)
+              print()
+              print("Nemotron response:")
+              print(answer)
+              print()
+
+              # -------------------------------------------------
+              # Give GitHub Actions a very obvious success/failure
+              # -------------------------------------------------
+              if answer and "NEMOTRON CONNECTION SUCCESS" in answer.upper():
+                  print("=" * 60)
+                  print("✅ NEMOTRON TEST PASSED")
+                  print("=" * 60)
+              else:
+                  print("=" * 60)
+                  print("⚠️ API CONNECTION WORKED, BUT RESPONSE WAS UNEXPECTED")
+                  print("=" * 60)
+
+          except Exception as e:
+              print("=" * 60)
+              print("❌ NEMOTRON API REQUEST FAILED")
+              print("=" * 60)
+              print()
+              print("Error type:")
+              print(type(e).__name__)
+              print()
+              print("Error message:")
+              print(str(e))
+              print()
+
+              raise
+          PY
