@@ -1,0 +1,19 @@
+{
+  "max_iterations": 5,
+  "max_consecutive_failures": 3,
+  "max_same_result": 3,
+
+  "symbol": "BTC-USD",
+  "period": "2y",
+  "interval": "1d",
+
+  "starting_capital": 10000,
+
+  "transaction_cost": 0.001,
+
+  "minimum_trades": 10,
+
+  "objective": "balanced",
+
+  "allow_ai_modification": true
+}
