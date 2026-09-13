@@ -1,4 +1,3 @@
-````python
 # AI/LLM-GENERATED FILE
 #
 # Purpose:
@@ -227,7 +226,3 @@ if not response:
     )
 
 return response
-```
-
-```
-```
