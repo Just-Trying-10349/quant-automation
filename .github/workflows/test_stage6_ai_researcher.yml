@@ -1,3 +1,4 @@
+```yaml
 name: STEP 6 - Test Actual AI Researcher
 
 on:
@@ -22,9 +23,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install openai
 
-      - name: Check actual AI researcher files
+      - name: Check actual files
         run: |
-          echo "Checking actual repository files..."
+          echo "Checking original project files..."
 
           test -f instructions/instructions.txt
           test -f strategies/strategy.py
@@ -36,30 +37,74 @@ jobs:
 
           echo "All required files exist."
 
-      - name: Show Python versions
-        run: |
-          python --version
-          pip --version
-
       - name: Compile actual AI Python files
+        shell: bash
         run: |
+          set +e
+
           echo "========================================"
-          echo "COMPILING ACTUAL AI PYTHON FILES"
+          echo "PYTHON COMPILATION TEST"
           echo "========================================"
 
-          python -m py_compile ai/ai_client.py
-          echo "ai/ai_client.py PASSED"
+          FILES=(
+            "ai/ai_client.py"
+            "ai/ai_researcher.py"
+            "engine/validator.py"
+            "run_research.py"
+          )
 
-          python -m py_compile ai/ai_researcher.py
-          echo "ai/ai_researcher.py PASSED"
+          FAILED=0
 
-          python -m py_compile engine/validator.py
-          echo "engine/validator.py PASSED"
+          for FILE in "${FILES[@]}"; do
 
-          python -m py_compile run_research.py
-          echo "run_research.py PASSED"
+            echo ""
+            echo "----------------------------------------"
+            echo "Testing: $FILE"
+            echo "----------------------------------------"
+
+            python -m py_compile "$FILE"
+
+            STATUS=$?
+
+            if [ "$STATUS" -eq 0 ]; then
+              echo "PASS: $FILE"
+            else
+              echo ""
+              echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+              echo "FAIL: $FILE"
+              echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+              echo ""
+
+              echo "SOURCE CODE WITH LINE NUMBERS:"
+              echo "========================================"
+
+              nl -ba "$FILE"
+
+              echo ""
+              echo "PYTHON COMPILER OUTPUT:"
+              echo "========================================"
+
+              python -m py_compile "$FILE"
+
+              FAILED=1
+            fi
+
+          done
+
+          echo ""
+          echo "========================================"
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "COMPILATION FAILED"
+            echo "========================================"
+            exit 1
+          fi
+
+          echo "ALL PYTHON FILES COMPILED SUCCESSFULLY"
+          echo "========================================"
 
       - name: Import actual AI modules
+        if: success()
         env:
           NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
         run: |
@@ -69,10 +114,13 @@ jobs:
           print("========================================")
 
           from ai.ai_client import load_ai_config, create_client
-          from ai.ai_researcher import build_prompt, request_improvement
+          from ai.ai_researcher import (
+              build_prompt,
+              request_improvement
+          )
 
-          print("ai_client imports PASSED")
-          print("ai_researcher imports PASSED")
+          print("ai.ai_client import: PASS")
+          print("ai.ai_researcher import: PASS")
 
           config = load_ai_config()
 
@@ -81,11 +129,12 @@ jobs:
           print("Base URL:", config["base_url"])
 
           print("========================================")
-          print("IMPORT TEST COMPLETE")
+          print("IMPORT TEST PASSED")
           print("========================================")
           PY
 
       - name: Test actual AI researcher
+        if: success()
         env:
           NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
         run: |
@@ -95,7 +144,7 @@ jobs:
           from run_research import extract_strategy
 
           print("========================================")
-          print("STEP 6 - ACTUAL AI RESEARCHER TEST")
+          print("ACTUAL AI RESEARCHER TEST")
           print("========================================")
 
           with open(
@@ -112,11 +161,14 @@ jobs:
           ) as file:
               strategy_code = file.read()
 
-          previous_result = "No previous result. This is the first test."
+          previous_result = (
+              "No previous result. "
+              "This is the first researcher test."
+          )
+
           previous_error = "No previous error."
 
           print("Calling actual request_improvement()...")
-          print("The AI is NOT allowed to modify repository files.")
 
           response = request_improvement(
               instructions,
@@ -127,19 +179,18 @@ jobs:
 
           if not response:
               raise RuntimeError(
-                  "AI returned an empty response."
+                  "Nemotron returned an empty response."
               )
 
           print("")
           print("========================================")
-          print("RAW NEMOTRON RESPONSE")
+          print("NEMOTRON RESPONSE RECEIVED")
           print("========================================")
+
           print(response)
 
           print("")
-          print("========================================")
-          print("CHECKING REQUIRED MARKER")
-          print("========================================")
+          print("Checking COMPLETE_STRATEGY_CODE...")
 
           if "COMPLETE_STRATEGY_CODE" not in response:
               raise RuntimeError(
@@ -147,35 +198,33 @@ jobs:
                   "COMPLETE_STRATEGY_CODE."
               )
 
-          print("COMPLETE_STRATEGY_CODE marker FOUND.")
+          print("Marker found.")
 
           print("")
-          print("========================================")
-          print("EXTRACTING CANDIDATE")
-          print("========================================")
+          print("Extracting candidate using actual")
+          print("run_research.extract_strategy()...")
 
           candidate = extract_strategy(response)
 
           if not candidate.strip():
               raise RuntimeError(
-                  "Extracted strategy code is empty."
+                  "Extracted strategy is empty."
               )
 
-          print("Candidate strategy extracted successfully.")
+          print("Candidate extracted.")
 
           print("")
-          print("========================================")
-          print("VALIDATING CANDIDATE")
-          print("========================================")
+          print("Validating candidate using actual")
+          print("engine.validator.validate_strategy_code()...")
 
           valid, message = validate_strategy_code(candidate)
 
-          print("Validation result:", valid)
-          print("Validation message:", message)
+          print("Valid:", valid)
+          print("Message:", message)
 
           if not valid:
               raise RuntimeError(
-                  "Candidate strategy failed validation: "
+                  "Candidate failed validation: "
                   + message
               )
 
@@ -183,16 +232,5 @@ jobs:
           print("========================================")
           print("STEP 6 PASSED")
           print("========================================")
-          print("Actual AI researcher successfully:")
-          print("1. Received the real instructions")
-          print("2. Received the real strategy")
-          print("3. Called Nemotron")
-          print("4. Returned a response")
-          print("5. Produced COMPLETE_STRATEGY_CODE")
-          print("6. Passed the actual strategy extractor")
-          print("7. Passed the actual validator")
-          print("")
-          print("No repository strategy was modified.")
-          print("No Git commit was created.")
-          print("No 5-loop system was started.")
           PY
+```
