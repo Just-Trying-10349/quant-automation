@@ -1,0 +1,101 @@
+name: AI Quant Research
+
+on:
+
+  workflow_dispatch:
+    inputs:
+
+      iterations:
+        description: "Number of AI research iterations"
+        required: false
+        default: "5"
+
+  # Optional later:
+  # schedule:
+  #   - cron: "0 6 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+
+  research:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # --------------------------------------------------
+      # 1. Download repository
+      # --------------------------------------------------
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------
+      # 2. Install Python
+      # --------------------------------------------------
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # --------------------------------------------------
+      # 3. Install dependencies
+      # --------------------------------------------------
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # --------------------------------------------------
+      # 4. Run research engine
+      # --------------------------------------------------
+
+      - name: Run AI research
+        env:
+
+          # Secret containing the NVIDIA API key.
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+
+        run: |
+
+          echo "Starting AI quantitative research..."
+
+          python run_research.py
+
+      # --------------------------------------------------
+      # 5. Show repository results
+      # --------------------------------------------------
+
+      - name: Show results
+        if: always()
+        run: |
+
+          echo "========================================"
+          echo "Research files"
+          echo "========================================"
+
+          find results experiments strategies \
+            -maxdepth 2 -type f \
+            -print 2>/dev/null || true
+
+      # --------------------------------------------------
+      # 6. Save research artifacts
+      # --------------------------------------------------
+
+      - name: Upload research artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+
+          name: quant-research-results
+
+          path: |
+            results/
+            experiments/
+            strategies/
+            config/
+            instructions/
