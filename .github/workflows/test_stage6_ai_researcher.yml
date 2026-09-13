@@ -1,0 +1,189 @@
+name: STEP 6 - Test Actual AI Researcher
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-ai-researcher:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ------------------------------------------------------------
+      # 1. Download the actual repository
+      # ------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------
+      # 2. Install Python
+      # ------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ------------------------------------------------------------
+      # 3. Install only the libraries required by the
+      #    ACTUAL AI Python files.
+      # ------------------------------------------------------------
+      - name: Install AI dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install openai
+
+      # ------------------------------------------------------------
+      # 4. Confirm the important files exist.
+      # ------------------------------------------------------------
+      - name: Check Stage 6 files
+        run: |
+          test -f instructions/instructions.txt
+          test -f strategies/strategy.py
+          test -f config/ai_config.json
+          test -f ai/ai_client.py
+          test -f ai/ai_researcher.py
+
+          echo "All Stage 6 files found."
+
+      # ------------------------------------------------------------
+      # 5. Compile the ACTUAL AI Python files.
+      #
+      # This catches syntax errors before we contact Nemotron.
+      # ------------------------------------------------------------
+      - name: Compile actual AI Python files
+        run: |
+          python -m py_compile \
+            ai/ai_client.py \
+            ai/ai_researcher.py
+
+          echo "AI Python files compiled successfully."
+
+      # ------------------------------------------------------------
+      # 6. Test that the ACTUAL modules can be imported.
+      # ------------------------------------------------------------
+      - name: Import actual AI modules
+        env:
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+        run: |
+          python - <<'PY'
+          from ai.ai_client import load_ai_config
+          from ai.ai_client import create_client
+          from ai.ai_researcher import build_prompt
+
+          print("IMPORT TEST PASSED")
+
+          config = load_ai_config()
+
+          print("AI provider:", config["provider"])
+          print("AI model:", config["model"])
+          print("AI base URL:", config["base_url"])
+
+          print("build_prompt() exists.")
+          PY
+
+      # ------------------------------------------------------------
+      # 7. Test the ACTUAL request_improvement() function.
+      #
+      # This is the important Stage 6 test.
+      #
+      # We deliberately do NOT write strategy.py.
+      # We deliberately do NOT commit anything.
+      # We deliberately do NOT start run_research.py.
+      # ------------------------------------------------------------
+      - name: Test actual AI improvement request
+        env:
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+        run: |
+          python - <<'PY'
+          import inspect
+
+          from ai.ai_researcher import request_improvement
+          from engine.validator import validate_strategy_code
+
+          print("=" * 70)
+          print("STEP 6 - ACTUAL AI RESEARCHER TEST")
+          print("=" * 70)
+
+          with open(
+              "instructions/instructions.txt",
+              "r",
+              encoding="utf-8"
+          ) as file:
+              instructions = file.read()
+
+          with open(
+              "strategies/strategy.py",
+              "r",
+              encoding="utf-8"
+          ) as file:
+              strategy_code = file.read()
+
+          previous_result = "No previous result. This is the Stage 6 test."
+
+          previous_error = "No previous error."
+
+          print("\nCalling ACTUAL request_improvement()...")
+          print("No repository files will be modified.")
+
+          ai_response = request_improvement(
+              instructions,
+              strategy_code,
+              previous_result,
+              previous_error
+          )
+
+          print("\n" + "=" * 70)
+          print("RAW AI RESPONSE")
+          print("=" * 70)
+
+          print(ai_response)
+
+          # --------------------------------------------------------
+          # Validate that the response contains the format required
+          # by run_research.py.
+          # --------------------------------------------------------
+
+          marker = "COMPLETE_STRATEGY_CODE"
+
+          if marker not in ai_response:
+              raise RuntimeError(
+                  "FAIL: AI response does not contain "
+                  "COMPLETE_STRATEGY_CODE."
+              )
+
+          print("\nCOMPLETE_STRATEGY_CODE marker found.")
+
+          # --------------------------------------------------------
+          # Reuse the ACTUAL extraction function from run_research.py
+          # rather than creating another implementation.
+          # --------------------------------------------------------
+
+          from run_research import extract_strategy
+
+          candidate = extract_strategy(ai_response)
+
+          print("\nCandidate strategy extracted successfully.")
+
+          # --------------------------------------------------------
+          # Reuse the ACTUAL validator.
+          # --------------------------------------------------------
+
+          valid, message = validate_strategy_code(candidate)
+
+          print("\nValidator result:")
+          print(message)
+
+          if not valid:
+              raise RuntimeError(
+                  "FAIL: AI candidate was rejected by "
+                  "the actual validator."
+              )
+
+          print("\n" + "=" * 70)
+          print("STEP 6 PASSED")
+          print("=" * 70)
+          print(
+              "Nemotron produced a complete strategy that "
+              "passed the actual validator."
+          )
+          PY
