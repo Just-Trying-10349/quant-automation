@@ -1,0 +1,260 @@
+name: Test Nemotron - Read Strategy and Propose
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect-and-propose:
+    name: Nemotron Read-Only Strategy Test
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ---------------------------------------------------------
+      # 1. Get the repository files
+      # ---------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # 2. Set up Python
+      # ---------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ---------------------------------------------------------
+      # 3. Install only the OpenAI-compatible API client
+      #
+      # We are NOT installing the trading/backtesting stack here.
+      # This test is only checking the AI-reading layer.
+      # ---------------------------------------------------------
+      - name: Install AI client
+        run: |
+          python -m pip install --upgrade pip
+          pip install openai
+
+      # ---------------------------------------------------------
+      # 4. Confirm the files we want to inspect exist
+      #
+      # IMPORTANT:
+      # This does NOT modify anything.
+      # It only confirms that GitHub Actions can read them.
+      # ---------------------------------------------------------
+      - name: Check research files
+        run: |
+          echo "Checking research files..."
+          echo
+
+          if [ ! -f "instructions/instructions.txt" ]; then
+            echo "ERROR: instructions/instructions.txt was not found."
+            exit 1
+          fi
+
+          if [ ! -f "strategies/strategy.py" ]; then
+            echo "ERROR: strategies/strategy.py was not found."
+            exit 1
+          fi
+
+          echo "Found:"
+          echo "  instructions/instructions.txt"
+          echo "  strategies/strategy.py"
+          echo
+          echo "File check PASSED."
+
+      # ---------------------------------------------------------
+      # 5. Send the instructions + strategy to Nemotron
+      #
+      # CRITICAL:
+      # Nemotron is explicitly told NOT to modify files.
+      # It can only analyze and propose.
+      # ---------------------------------------------------------
+      - name: Ask Nemotron to inspect strategy
+        env:
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from openai import OpenAI
+
+          # -----------------------------------------------------
+          # Read the project files
+          # -----------------------------------------------------
+
+          instructions_path = Path("instructions/instructions.txt")
+          strategy_path = Path("strategies/strategy.py")
+
+          instructions = instructions_path.read_text(encoding="utf-8")
+          strategy = strategy_path.read_text(encoding="utf-8")
+
+          # -----------------------------------------------------
+          # Create the NVIDIA/Nemotron client
+          # -----------------------------------------------------
+
+          client = OpenAI(
+              base_url="https://integrate.api.nvidia.com/v1",
+              api_key=os.environ["NEMOTRON_API_KEY"]
+          )
+
+          # -----------------------------------------------------
+          # This is deliberately a READ-ONLY research request.
+          #
+          # Nemotron is NOT allowed to edit the repository.
+          # It is only allowed to explain what it sees and
+          # propose a possible modification.
+          # -----------------------------------------------------
+
+          prompt = f"""
+          You are acting as a quantitative-strategy research assistant.
+
+          THIS IS A READ-ONLY TEST.
+
+          You MUST NOT:
+          - modify any files
+          - write files
+          - commit anything
+          - push anything
+          - modify GitHub Actions
+          - modify secrets
+          - modify configuration
+          - claim that you changed the strategy
+
+          You MAY:
+          - analyze the instructions
+          - analyze the strategy
+          - identify possible weaknesses
+          - propose one concrete strategy improvement
+          - provide replacement code as a PROPOSAL ONLY
+
+          ============================================================
+          PROJECT INSTRUCTIONS
+          ============================================================
+
+          {instructions}
+
+          ============================================================
+          CURRENT STRATEGY
+          ============================================================
+
+          {strategy}
+
+          ============================================================
+          YOUR TASK
+          ============================================================
+
+          Complete these three stages:
+
+          STAGE 1 — UNDERSTANDING
+          Briefly explain what you believe the project instructions
+          are asking the strategy/research system to accomplish.
+
+          STAGE 2 — STRATEGY UNDERSTANDING
+          Explain what the current strategy appears to do.
+          Identify:
+          - indicators or signals used
+          - entry logic
+          - exit logic
+          - risk/position logic
+          - important assumptions
+          - anything that appears unclear
+
+          STAGE 3 — PROPOSED MODIFICATION
+          Propose ONE improvement to the strategy.
+
+          Do NOT make the change.
+
+          Instead provide:
+
+          A. The reason for the proposed modification.
+
+          B. What part of the strategy it would change.
+
+          C. A proposed replacement version of the relevant code.
+
+          D. What you would expect the change to improve.
+
+          E. What could go wrong with the proposed change.
+
+          F. A short list of metrics that GitHub should later use
+             to determine whether the modification actually improved
+             the strategy.
+
+          IMPORTANT:
+          Do not assume that a proposed modification is profitable.
+          This is a hypothesis that must later be tested independently.
+
+          End your response with exactly:
+
+          READ_AND_PROPOSAL_TEST_COMPLETE
+          """
+
+          # -----------------------------------------------------
+          # Call Nemotron
+          # -----------------------------------------------------
+
+          response = client.chat.completions.create(
+              model="nvidia/nemotron-3-ultra-550b-a55b",
+              messages=[
+                  {
+                      "role": "user",
+                      "content": prompt
+                  }
+              ],
+              temperature=0,
+              max_tokens=6000
+          )
+
+          result = response.choices[0].message.content
+
+          # -----------------------------------------------------
+          # Display result in GitHub Actions
+          # -----------------------------------------------------
+
+          print()
+          print("=" * 80)
+          print("NEMOTRON READ + PROPOSAL TEST")
+          print("=" * 80)
+          print()
+          print(result)
+          print()
+          print("=" * 80)
+
+          # -----------------------------------------------------
+          # Save the proposal as an artifact.
+          #
+          # This does NOT commit it to GitHub.
+          # It exists only inside this workflow run.
+          # -----------------------------------------------------
+
+          Path("nemotron_proposal.txt").write_text(
+              result,
+              encoding="utf-8"
+          )
+
+          # -----------------------------------------------------
+          # Verify that Nemotron completed the requested stages.
+          # -----------------------------------------------------
+
+          if "READ_AND_PROPOSAL_TEST_COMPLETE" not in result:
+              print()
+              print("ERROR: Nemotron did not complete the requested test.")
+              raise SystemExit(1)
+
+          print()
+          print("Nemotron completed the read-and-propose test successfully.")
+          PY
+
+      # ---------------------------------------------------------
+      # 6. Upload the proposal as a workflow artifact
+      #
+      # This is NOT a Git commit.
+      # It will not affect the 5-iteration strategy.
+      # ---------------------------------------------------------
+      - name: Save Nemotron proposal as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nemotron-read-and-proposal-test
+          path: nemotron_proposal.txt
+          if-no-files-found: error
