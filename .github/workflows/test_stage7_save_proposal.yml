@@ -1,0 +1,203 @@
+name: STEP 7 - Test Safe Proposal Saving
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-save-proposal:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ensure results directory exists
+        run: |
+          mkdir -p results
+          echo "results/ directory ready."
+
+      - name: Generate proposal and save safely
+        env:
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          from ai.ai_researcher import request_improvement
+          from engine.validator import validate_strategy_code
+          from run_research import extract_strategy
+
+          print("========================================")
+          print("STEP 7: SAFE PROPOSAL SAVING TEST")
+          print("========================================")
+
+          # ----------------------------------------------
+          # Read the real instructions and current strategy.
+          # NOTE: we only READ strategies/strategy.py here.
+          # We never write back to it in this test.
+          # ----------------------------------------------
+          instructions = Path(
+              "instructions/instructions.txt"
+          ).read_text(encoding="utf-8")
+
+          strategy_code = Path(
+              "strategies/strategy.py"
+          ).read_text(encoding="utf-8")
+
+          previous_result = (
+              "No previous result. "
+              "This is the Step 7 save test."
+          )
+          previous_error = "No previous error."
+
+          print("Requesting proposal from Nemotron...")
+
+          response = request_improvement(
+              instructions,
+              strategy_code,
+              previous_result,
+              previous_error
+          )
+
+          if not response:
+              raise RuntimeError(
+                  "AI researcher returned an empty response."
+              )
+
+          print("Response received. Extracting candidate...")
+
+          candidate = extract_strategy(response)
+
+          if not candidate.strip():
+              raise RuntimeError(
+                  "Extracted candidate strategy is empty."
+              )
+
+          print("Validating candidate...")
+
+          valid, message = validate_strategy_code(candidate)
+
+          print("Valid:", valid)
+          print("Message:", message)
+
+          timestamp = datetime.now(
+              timezone.utc
+          ).isoformat()
+
+          # ----------------------------------------------
+          # Safe-save target: a STAGING file, never the
+          # live strategies/strategy.py.
+          # ----------------------------------------------
+          staged_path = Path(
+              "results/proposed_strategy_preview.py"
+          )
+
+          metadata_path = Path(
+              "results/proposal_metadata.json"
+          )
+
+          metadata = {
+              "timestamp_utc": timestamp,
+              "valid": valid,
+              "validation_message": message,
+              "candidate_char_length": len(candidate),
+              "staged_file": str(staged_path)
+          }
+
+          if not valid:
+              # We still record that a rejected proposal
+              # occurred, but we do NOT save unsafe code.
+              metadata_path.write_text(
+                  json.dumps(metadata, indent=2),
+                  encoding="utf-8"
+              )
+
+              raise RuntimeError(
+                  "Candidate failed validation: " + message
+              )
+
+          # ----------------------------------------------
+          # Write the candidate to the STAGING file only.
+          # ----------------------------------------------
+          staged_path.write_text(
+              candidate,
+              encoding="utf-8"
+          )
+
+          metadata_path.write_text(
+              json.dumps(metadata, indent=2),
+              encoding="utf-8"
+          )
+
+          print("")
+          print("Candidate staged at:", staged_path)
+          print("Metadata saved at:", metadata_path)
+
+          # ----------------------------------------------
+          # Read everything back to confirm the save
+          # actually persisted correctly to disk.
+          # ----------------------------------------------
+          reread_candidate = staged_path.read_text(
+              encoding="utf-8"
+          )
+
+          reread_metadata = json.loads(
+              metadata_path.read_text(encoding="utf-8")
+          )
+
+          if reread_candidate != candidate:
+              raise RuntimeError(
+                  "Read-back mismatch: staged file content "
+                  "differs from what was generated."
+              )
+
+          if reread_metadata["valid"] is not True:
+              raise RuntimeError(
+                  "Read-back mismatch: metadata does not "
+                  "reflect a valid candidate."
+              )
+
+          print("")
+          print("Read-back verification PASSED.")
+          print("")
+          print("========================================")
+          print("STEP 7 PASSED")
+          print("========================================")
+          PY
+
+      - name: Show staged files
+        if: always()
+        run: |
+          echo "========================================"
+          echo "Contents of results/"
+          echo "========================================"
+          ls -la results/ || true
+          echo ""
+          echo "--- proposal_metadata.json ---"
+          cat results/proposal_metadata.json 2>/dev/null || echo "(not present)"
+          echo ""
+          echo "--- proposed_strategy_preview.py ---"
+          cat results/proposed_strategy_preview.py 2>/dev/null || echo "(not present)"
+
+      - name: Upload staged proposal as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step7-proposal-staging
+          path: |
+            results/proposed_strategy_preview.py
+            results/proposal_metadata.json
+          if-no-files-found: warn
