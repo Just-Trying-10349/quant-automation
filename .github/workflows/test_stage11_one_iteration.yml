@@ -1,0 +1,107 @@
+name: STEP 11 - One Complete Iteration (run_research.py)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-one-iteration:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ensure results directory exists
+        run: |
+          mkdir -p results
+
+      - name: Snapshot strategy files BEFORE run
+        run: |
+          echo "========================================"
+          echo "strategies/strategy.py BEFORE"
+          echo "========================================"
+          cat strategies/strategy.py
+          echo ""
+          echo "========================================"
+          echo "strategies/best_strategy.py BEFORE"
+          echo "========================================"
+          cat strategies/best_strategy.py 2>/dev/null || echo "(does not exist yet)"
+
+      - name: Override max_iterations to 1 (local runner only)
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("config/parameters.json")
+          parameters = json.loads(path.read_text(encoding="utf-8"))
+
+          original = dict(parameters)
+          parameters["max_iterations"] = 1
+
+          path.write_text(
+              json.dumps(parameters, indent=2),
+              encoding="utf-8"
+          )
+
+          print("Original parameters.json:")
+          print(json.dumps(original, indent=2))
+          print()
+          print("Overridden parameters.json (this run only, not committed):")
+          print(json.dumps(parameters, indent=2))
+          PY
+
+      - name: Run actual run_research.py (1 iteration)
+        env:
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+        run: |
+          python run_research.py
+
+      - name: Snapshot strategy files AFTER run
+        if: always()
+        run: |
+          echo "========================================"
+          echo "strategies/strategy.py AFTER"
+          echo "========================================"
+          cat strategies/strategy.py
+          echo ""
+          echo "========================================"
+          echo "strategies/best_strategy.py AFTER"
+          echo "========================================"
+          cat strategies/best_strategy.py 2>/dev/null || echo "(does not exist)"
+
+      - name: Show uncommitted changes (nothing is pushed)
+        if: always()
+        run: |
+          echo "========================================"
+          echo "git diff/status (local to this runner only)"
+          echo "Nothing here is committed or pushed."
+          echo "========================================"
+          git status --porcelain
+          echo ""
+          echo "--- Diff for strategies/ ---"
+          git diff -- strategies/ || true
+          echo ""
+          echo "--- Diff for config/parameters.json (should show the max_iterations override) ---"
+          git diff -- config/parameters.json || true
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step11-one-iteration
+          path: |
+            strategies/strategy.py
+            strategies/best_strategy.py
+          if-no-files-found: warn
