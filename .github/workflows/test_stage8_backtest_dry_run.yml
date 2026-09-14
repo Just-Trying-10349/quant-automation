@@ -1,0 +1,245 @@
+name: STEP 8 - Test Backtester Execution (Dry Run)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-backtest-dry-run:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ensure results directory exists
+        run: |
+          mkdir -p results
+          echo "results/ directory ready."
+
+      - name: Run baseline and candidate backtests (dry run)
+        env:
+          NEMOTRON_API_KEY: ${{ secrets.NEMOTRON_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          from engine.backtester import download_data, run_backtest
+          from engine.evaluator import (
+              calculate_metrics,
+              calculate_score,
+              is_better
+          )
+          from engine.validator import validate_strategy_code
+          from ai.ai_researcher import request_improvement
+          from run_research import extract_strategy
+
+          PARAMETERS_FILE = Path("config/parameters.json")
+          STRATEGY_FILE = Path("strategies/strategy.py")
+          INSTRUCTIONS_FILE = Path("instructions/instructions.txt")
+
+          print("========================================")
+          print("STEP 8: BACKTESTER EXECUTION DRY RUN")
+          print("========================================")
+
+          parameters = json.loads(
+              PARAMETERS_FILE.read_text(encoding="utf-8")
+          )
+
+          print(f"Symbol: {parameters['symbol']}")
+          print(f"Period: {parameters['period']}")
+          print(f"Interval: {parameters['interval']}")
+
+          # ------------------------------------------------
+          # 1. Download data once. Shared by both runs.
+          # ------------------------------------------------
+          print("\nDownloading market data...")
+
+          df = download_data(
+              parameters["symbol"],
+              parameters["period"],
+              parameters["interval"]
+          )
+
+          print(f"Downloaded {len(df)} market bars.")
+
+          # ------------------------------------------------
+          # Helper: run a strategy's source code through
+          # the real backtester + evaluator.
+          # ------------------------------------------------
+          def run_strategy_source(label, source_code):
+
+              print(f"\n--- Running {label} ---")
+
+              namespace = {}
+              exec(source_code, namespace)
+
+              if "generate_signals" not in namespace:
+                  raise RuntimeError(
+                      f"{label}: generate_signals(df) not found."
+                  )
+
+              generate_signals = namespace["generate_signals"]
+
+              backtest = run_backtest(
+                  df,
+                  generate_signals,
+                  parameters["starting_capital"],
+                  parameters["transaction_cost"]
+              )
+
+              metrics = calculate_metrics(backtest)
+              metrics["score"] = round(
+                  calculate_score(metrics), 6
+              )
+
+              print(f"{label} metrics:")
+              for key, value in metrics.items():
+                  print(f"  {key}: {value}")
+
+              return metrics
+
+          # ------------------------------------------------
+          # 2. Baseline: current strategies/strategy.py
+          # ------------------------------------------------
+          baseline_source = STRATEGY_FILE.read_text(encoding="utf-8")
+
+          baseline_metrics = run_strategy_source(
+              "BASELINE (current strategy.py)",
+              baseline_source
+          )
+
+          # ------------------------------------------------
+          # 3. Request one AI candidate (same as Step 6/7).
+          # ------------------------------------------------
+          print("\n--- Requesting AI candidate strategy ---")
+
+          instructions = INSTRUCTIONS_FILE.read_text(encoding="utf-8")
+
+          previous_result = json.dumps(baseline_metrics, indent=2)
+          previous_error = "No execution error."
+
+          response = request_improvement(
+              instructions,
+              baseline_source,
+              previous_result,
+              previous_error
+          )
+
+          if not response:
+              raise RuntimeError(
+                  "AI researcher returned an empty response."
+              )
+
+          candidate_source = extract_strategy(response)
+
+          if not candidate_source.strip():
+              raise RuntimeError("Extracted candidate strategy is empty.")
+
+          valid, validation_message = validate_strategy_code(
+              candidate_source
+          )
+
+          print(f"\nCandidate validation: {valid}")
+          print(f"Validation message: {validation_message}")
+
+          if not valid:
+              raise RuntimeError(
+                  "Candidate failed validation: " + validation_message
+              )
+
+          # ------------------------------------------------
+          # 4. Run the candidate through the SAME
+          #    backtester + evaluator as the baseline.
+          # ------------------------------------------------
+          candidate_metrics = run_strategy_source(
+              "CANDIDATE (AI-proposed strategy)",
+              candidate_source
+          )
+
+          # ------------------------------------------------
+          # 5. Compare using the real is_better() logic.
+          # ------------------------------------------------
+          candidate_wins = is_better(
+              candidate_metrics,
+              baseline_metrics
+          )
+
+          print("\n========================================")
+          print("COMPARISON RESULT")
+          print("========================================")
+          print(f"Baseline score:  {baseline_metrics['score']}")
+          print(f"Candidate score: {candidate_metrics['score']}")
+          print(f"Candidate is better: {candidate_wins}")
+
+          # ------------------------------------------------
+          # 6. Write a dry-run report to results/.
+          #    IMPORTANT: strategies/strategy.py and
+          #    strategies/best_strategy.py are NEVER
+          #    touched by this test.
+          # ------------------------------------------------
+          report = {
+              "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+              "symbol": parameters["symbol"],
+              "period": parameters["period"],
+              "interval": parameters["interval"],
+              "baseline_metrics": baseline_metrics,
+              "candidate_metrics": candidate_metrics,
+              "candidate_validation_message": validation_message,
+              "candidate_is_better": candidate_wins
+          }
+
+          Path("results/step8_dry_run_report.json").write_text(
+              json.dumps(report, indent=2),
+              encoding="utf-8"
+          )
+
+          Path("results/step8_candidate_preview.py").write_text(
+              candidate_source,
+              encoding="utf-8"
+          )
+
+          print("\nDry-run report saved to results/step8_dry_run_report.json")
+          print("Candidate preview saved to results/step8_candidate_preview.py")
+
+          print("\n========================================")
+          print("STEP 8 PASSED")
+          print("========================================")
+          PY
+
+      - name: Confirm live strategy files were not modified
+        if: always()
+        run: |
+          echo "========================================"
+          echo "Git status (should show NO changes to"
+          echo "strategies/strategy.py or best_strategy.py)"
+          echo "========================================"
+          git status --porcelain strategies/ || true
+
+      - name: Show dry-run report
+        if: always()
+        run: |
+          echo "--- step8_dry_run_report.json ---"
+          cat results/step8_dry_run_report.json 2>/dev/null || echo "(not present)"
+
+      - name: Upload dry-run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: step8-backtest-dry-run
+          path: |
+            results/step8_dry_run_report.json
+            results/step8_candidate_preview.py
+          if-no-files-found: warn
